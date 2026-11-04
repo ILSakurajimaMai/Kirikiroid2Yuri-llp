@@ -1,4 +1,4 @@
-﻿// psbfile.cpp â€” PSB (pimg) container plugin for Kirikiroid2
+// psbfile.cpp â€” PSB (pimg) container plugin for Kirikiroid2
 //
 // Provides the "PSBFile" TJS class and the "psb://" storage media so games
 // whose UI is packed in PSB image containers (.pimg) can render on
@@ -30,6 +30,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <zlib.h>
 
 #ifdef TJS_NATIVE_CLASSID_NAME
 #undef TJS_NATIVE_CLASSID_NAME
@@ -124,13 +125,44 @@ public:
 		return true;
 	}
 
+	static ttstr Utf8ToTtstr(const tjs_uint8 *p, size_t len) {
+		ttstr out;
+		size_t i = 0;
+		while (i < len) {
+			tjs_uint32 b0 = p[i++];
+			tjs_uint32 cp = 0;
+			if (b0 < 0x80) {
+				cp = b0;
+			} else if ((b0 & 0xE0) == 0xC0 && i < len) {
+				cp = ((b0 & 0x1F) << 6) | (p[i++] & 0x3F);
+			} else if ((b0 & 0xF0) == 0xE0 && i + 1 < len) {
+				cp = ((b0 & 0x0F) << 12) | ((tjs_uint32)(p[i] & 0x3F) << 6) | (p[i + 1] & 0x3F);
+				i += 2;
+			} else if ((b0 & 0xF8) == 0xF0 && i + 2 < len) {
+				cp = ((b0 & 0x07) << 18) | ((tjs_uint32)(p[i] & 0x3F) << 12) |
+				     ((tjs_uint32)(p[i + 1] & 0x3F) << 6) | (p[i + 2] & 0x3F);
+				i += 3;
+			} else {
+				cp = 0xFFFD;
+			}
+			if (cp <= 0xFFFF) {
+				out += (tjs_char)cp;
+			} else if (cp <= 0x10FFFF) {
+				cp -= 0x10000;
+				out += (tjs_char)(0xD800 + (cp >> 10));
+				out += (tjs_char)(0xDC00 + (cp & 0x3FF));
+			}
+		}
+		return out;
+	}
+
 	// property name from the compact b-tree (see psb_parser.get_name)
 	bool getName(tjs_uint index, ttstr &out) {
 		if (index >= nameA3.values.size()) return false;
 		tjs_uint a = nameA3.values[index];
 		if (a >= nameA2.values.size()) return false;
 		tjs_int64 b = nameA2.values[a];
-		std::string accum;
+		std::vector<tjs_uint8> accum;
 		int guard = 0;
 		while (true) {
 			if (++guard > 4096) return false;
@@ -140,15 +172,12 @@ public:
 			tjs_int64 d = nameA1.values[(tjs_uint)c];
 			tjs_int64 ch = b - d;
 			if (ch < 0 || ch > 0x10FFFF) return false;
-			accum.push_back((char)(tjs_uint8)ch);
+			accum.push_back((tjs_uint8)ch);
 			b = c;
 			if (b == 0) break;
 		}
-		// accum was built backwards
-		ttstr s;
-		for (int i = (int)accum.size() - 1; i >= 0; i--)
-			s += (tjs_char)(tjs_uint8)accum[i];
-		out = s;
+		std::reverse(accum.begin(), accum.end());
+		out = accum.empty() ? ttstr() : Utf8ToTtstr(accum.data(), accum.size());
 		return true;
 	}
 
@@ -159,9 +188,7 @@ public:
 		tjs_uint end = start;
 		while (end < buf.size() && buf[end] != 0) end++;
 		if (end >= buf.size()) return false;
-		ttstr s;
-		for (tjs_uint i = start; i < end; i++) s += (tjs_char)buf[i];
-		out = s;
+		out = Utf8ToTtstr(&buf[start], end - start);
 		return true;
 	}
 
@@ -241,7 +268,7 @@ public:
 		}
 		if (!stream) return false;
 		tjs_uint64 size64 = stream->GetSize();
-		if (size64 < 40 || size64 > 0x20000000ull) { // 512MB sanity cap
+		if (size64 < 12 || size64 > 0x20000000ull) { // 512MB sanity cap
 			delete stream;
 			return false;
 		}
@@ -251,7 +278,19 @@ public:
 		delete stream;
 		if (!readOk) return false;
 
-		if (buf[0] != 'P' || buf[1] != 'S' || buf[2] != 'B' || buf[3] != 0)
+		if (size >= 12 && buf[0] == 'm' && buf[1] == 'd' && buf[2] == 'f' && buf[3] == 0) {
+			tjs_uint uncompSize = readUint(&buf[4], 4);
+			if (uncompSize < 40 || uncompSize > 0x20000000u) return false;
+			std::vector<tjs_uint8> out(uncompSize);
+			uLongf destLen = (uLongf)uncompSize;
+			if (uncompress(&out[0], &destLen, &buf[8], (uLong)(size - 8)) != Z_OK)
+				return false;
+			out.resize((size_t)destLen);
+			buf.swap(out);
+			size = (tjs_uint)buf.size();
+		}
+
+		if (size < 40 || buf[0] != 'P' || buf[1] != 'S' || buf[2] != 'B' || buf[3] != 0)
 			return false;
 		// header: <4sHH8I> -> the eight u32 offsets start at byte 8
 		if (size < 40) return false;
@@ -594,6 +633,9 @@ static iTJSDispatch2 *Create_NC_PSBFile() {
 			/*var.type*/NI_PSBFile,
 			/*TJS class name*/PSBFile)
 		{
+			if (numparams >= 1 && param[0]->Type() != tvtVoid) {
+				_this->Load(param[0]->AsStringNoAddRef());
+			}
 			return TJS_S_OK;
 		}
 		TJS_END_NATIVE_CONSTRUCTOR_DECL(/*TJS class name*/PSBFile)

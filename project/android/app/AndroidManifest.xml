@@ -1,12 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Replace org.libsdl.app with the identifier of your game below, e.g.
-     com.gamemaker.game
--->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     package="com.yuri.kirikiri2"
-      android:versionCode="64"
-      android:versionName="1.4.0beta"
+      android:versionCode="100"
+      android:versionName="1.0.0"
       android:installLocation="auto">
 
     <!-- OpenGL ES 2.0 -->
@@ -36,4 +33,4 @@
             </intent-filter>
         </activity>
     </application>
-</manifest> 
+</manifest>

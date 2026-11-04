@@ -91,7 +91,41 @@ bool TVPAppDelegate::applicationDidFinishLaunching() {
 		TVPMainScene::GetInstance()->unschedule("launch");
 		TVPGlobalPreferenceForm::Initialize();
 		if (!TVPCheckStartupArg()) {
+			auto *fileUtils = cocos2d::FileUtils::getInstance();
+			std::vector<std::string> appPaths = TVPGetAppStoragePath();
+			std::vector<std::string> candidates;
+			for (size_t i = 1; i < appPaths.size(); ++i) {
+				if (!appPaths[i].empty()) {
+					fileUtils->createDirectory(appPaths[i] + "/gamedata");
+					candidates.push_back(appPaths[i] + "/gamedata/data.xp3");
+					candidates.push_back(appPaths[i] + "/data.xp3");
+				}
+			}
+			if (!appPaths.empty() && !appPaths[0].empty()) {
+				candidates.push_back(appPaths[0] + "/gamedata/data.xp3");
+				candidates.push_back(appPaths[0] + "/data.xp3");
+			}
+			candidates.push_back("/storage/emulated/0/Android/data/com.moonstone.liplipples.vn/files/gamedata/data.xp3");
+			candidates.push_back("/sdcard/Android/data/com.moonstone.liplipples.vn/files/gamedata/data.xp3");
+			candidates.push_back("/storage/emulated/0/Liplipples/gamedata/data.xp3");
+			candidates.push_back("/storage/emulated/0/Liplipples/data.xp3");
+
+			for (const std::string &cand : candidates) {
+				if (fileUtils->isFileExist(cand)) {
+					if (TVPMainScene::GetInstance()->startupFrom(cand)) {
+						return;
+					}
+				}
+			}
+
 			TVPMainScene::GetInstance()->pushUIForm(TVPMainFileSelectorForm::create());
+			const char *btnOk = "OK";
+			TVPShowSimpleMessageBox(
+				u8"Ch?a t?m th?y d? li?u game (data.xp3)!\n\nH?y k?t n?i ?i?n tho?i v?i m?y t?nh v? ch?y Cai_Dat_Android.bat, ho?c ch?p c?c t?p .xp3 v?o:\nAndroid/data/com.moonstone.liplipples.vn/files/gamedata/\n\nB?n c?ng c? th? ch?n th? c?ng th? m?c ch?a data.xp3 ? m?n h?nh ti?p theo.",
+				u8"Lip lipples (Vi?t H?a)",
+				1,
+				&btnOk
+			);
 		}
 	}, 0, "launch");
 

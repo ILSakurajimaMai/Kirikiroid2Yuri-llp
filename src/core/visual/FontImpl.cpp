@@ -84,9 +84,9 @@ static int TVPInternalEnumFonts(FT_Byte* pBuf, int buflen, const ttstr &FontPath
 		if (FT_IS_SCALABLE(fontface)) {
 			FT_UInt namecount = FT_Get_Sfnt_Name_Count(fontface);
 			int addCount = 0;
-			for (FT_UInt i = 0; i < namecount; ++i) {
+			for (FT_UInt k = 0; k < namecount; ++k) {
 				FT_SfntName name;
-				if (FT_Get_Sfnt_Name(fontface, i, &name)) {
+				if (FT_Get_Sfnt_Name(fontface, k, &name)) {
 					continue;
 				}
 				if (name.name_id != TT_NAME_ID_FONT_FAMILY) {

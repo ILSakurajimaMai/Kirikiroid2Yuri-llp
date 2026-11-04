@@ -645,6 +645,22 @@ void tTVPArchive::NormalizeInArchiveStorageName(ttstr & name)
 	name.FixLen();
 }
 //---------------------------------------------------------------------------
+#include "hxv4_lookup_table.h"
+template <typename HashTableT>
+static tjs_uint * TVPFindArchiveEntry(
+	HashTableT &hash,
+	const ttstr &archiveName,
+	const ttstr &name)
+{
+	tjs_uint *p = hash.Find(name);
+	if(p) return p;
+	const uint8_t aid = hxv4::ResolveArchiveId(archiveName.c_str(), (size_t)archiveName.GetLen());
+	const uint16_t phys = hxv4::LookupPhysicalChar(aid, name.c_str(), (size_t)name.GetLen());
+	if(!phys) return NULL;
+	tjs_char buf[2] = { static_cast<tjs_char>(phys), 0 };
+	return hash.Find(ttstr(buf));
+}
+//---------------------------------------------------------------------------
 void tTVPArchive::AddToHash()
 {
 	// enter all names to the hash table
@@ -668,7 +684,7 @@ tTJSBinaryStream * tTVPArchive::CreateStream(const ttstr & name)
 		AddToHash();
 	}
 
-	tjs_uint *p = Hash.Find(name);
+	tjs_uint *p = TVPFindArchiveEntry(Hash, ArchiveName, name);
 	if(!p) TVPThrowExceptionMessage(TVPStorageInArchiveNotFound,
 		name, ArchiveName);
 
@@ -685,7 +701,7 @@ bool tTVPArchive::IsExistent(const ttstr & name)
 		AddToHash();
 	}
 
-	return Hash.Find(name) != NULL;
+	return TVPFindArchiveEntry(Hash, ArchiveName, name) != NULL;
 }
 //---------------------------------------------------------------------------
 tjs_int tTVPArchive::GetFirstIndexStartsWith(const ttstr & prefix)

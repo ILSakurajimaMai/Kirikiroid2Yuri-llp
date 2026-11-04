@@ -449,6 +449,7 @@ int TVPShowSimpleMessageBox(const char *pszText, const char *pszTitle, unsigned 
 			methodInfo.env->DeleteLocalRef(jstrBtn);
 		}
 
+		MsgBoxRet = -2;
 		methodInfo.env->CallStaticVoidMethod(methodInfo.classID, methodInfo.methodID, jstrTitle, jstrText, btns);
 
 		methodInfo.env->DeleteLocalRef(jstrTitle);
