@@ -97,6 +97,14 @@ jobs:
         fi
         ls -la project/android/app/sign.jks project/android/app/sign.properties 2>&1 || true
         cat project/android/app/sign.properties 2>&1 || true
+        file project/android/app/sign.jks 2>&1 || true
+        head -c 8 project/android/app/sign.jks | od -c | head -2
+        echo "--- keytool -list with JKS type ---"
+        keytool -list -keystore project/android/app/sign.jks -storepass android -storetype JKS 2>&1 | head -8 || true
+        echo "--- keytool -list with PKCS12 type ---"
+        keytool -list -keystore project/android/app/sign.jks -storepass android -storetype PKCS12 2>&1 | head -8 || true
+        echo "--- keytool -list default type ---"
+        keytool -list -keystore project/android/app/sign.jks -storepass android 2>&1 | head -8 || true
         cd project/android
         chmod +x ./gradlew
         ./gradlew assembleDebug --no-daemon
