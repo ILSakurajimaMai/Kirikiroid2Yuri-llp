@@ -103,9 +103,10 @@ android {
         debug {
             debuggable true
             jniDebuggable true
-            jniDebuggable true
             renderscriptDebuggable true
-            signingConfig signingConfigs.release
+            // use AGP's auto-generated ~/.android/debug.keystore: a fresh
+            // fork/CI has no sign.jks, and the release signingConfig above
+            // would fail packageDebug with an unusable/absent keystore.
         }
     }
 
