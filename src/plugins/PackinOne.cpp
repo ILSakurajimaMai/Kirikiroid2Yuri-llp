@@ -88,11 +88,26 @@ static void CollectMembers(iTJSDispatch2 *obj, iTJSDispatch2 *ctx, std::vector<M
 	collector->Release();
 }
 
-static bool IsArrayObject(iTJSDispatch2 *obj) {
+static bool IsArrayObject(iTJSDispatch2 *obj, iTJSDispatch2 *ctx = NULL) {
 	if (!obj) return false;
+	if (obj->IsInstanceOf(0, NULL, NULL, TJS_W("Array"), ctx ? ctx : obj) == TJS_S_TRUE) {
+		return true;
+	}
 	tTJSVariant v;
 	if (TJS_SUCCEEDED(obj->ClassInstanceInfo(TJS_CII_GET, 0, &v))) {
 		return ttstr(v) == TJS_W("Array");
+	}
+	return false;
+}
+
+static bool IsDictionaryObject(iTJSDispatch2 *obj, iTJSDispatch2 *ctx = NULL) {
+	if (!obj) return false;
+	if (obj->IsInstanceOf(0, NULL, NULL, TJS_W("Dictionary"), ctx ? ctx : obj) == TJS_S_TRUE) {
+		return true;
+	}
+	tTJSVariant v;
+	if (TJS_SUCCEEDED(obj->ClassInstanceInfo(TJS_CII_GET, 0, &v))) {
+		return ttstr(v) == TJS_W("Dictionary");
 	}
 	return false;
 }
@@ -164,7 +179,7 @@ class FnGetObjectCount : public tTJSDispatch {
 class FnForeach : public tTJSDispatch {
 	tjs_error TJS_INTF_METHOD FuncCall(
 		tjs_uint32, const tjs_char *m, tjs_uint32 *, tTJSVariant *result,
-		tjs_int numparams, tTJSVariant **param, iTJSDispatch2 *) override {
+		tjs_int numparams, tTJSVariant **param, iTJSDispatch2 *objthis) override {
 		if (m) return TJS_E_MEMBERNOTFOUND;
 		if (numparams < 2) return TJS_E_BADPARAMCOUNT;
 		if (result) result->Clear();
@@ -174,20 +189,22 @@ class FnForeach : public tTJSDispatch {
 		tTJSVariantClosure func = param[1]->AsObjectClosureNoAddRef();
 		if (!target.Object || !func.Object) return TJS_S_OK;
 
+		iTJSDispatch2 *funcThis = func.ObjThis ? func.ObjThis : objthis;
+
 		int extraCount = numparams > 2 ? (numparams - 2) : 0;
 		std::vector<tTJSVariant> callVals(2 + extraCount);
 		std::vector<tTJSVariant *> callPtrs(2 + extraCount);
 		for (int i = 0; i < extraCount; ++i) callVals[2 + i] = *param[2 + i];
 		for (size_t i = 0; i < callVals.size(); ++i) callPtrs[i] = &callVals[i];
 
-		if (IsArrayObject(target.Object)) {
+		if (IsArrayObject(target.Object, target.ObjThis)) {
 			tjs_int cnt = GetArrayCount(target.Object);
 			for (tjs_int i = 0; i < cnt; ++i) {
 				callVals[0] = i;
 				callVals[1].Clear();
-				target.Object->PropGetByNum(0, i, &callVals[1], target.ObjThis ? target.ObjThis : target.Object);
+				target.Object->PropGetByNum(TJS_IGNOREPROP, i, &callVals[1], target.ObjThis ? target.ObjThis : target.Object);
 				tTJSVariant r;
-				func.FuncCall(0, NULL, NULL, &r, (tjs_int)callPtrs.size(), &callPtrs[0], NULL);
+				func.Object->FuncCall(0, NULL, NULL, &r, (tjs_int)callPtrs.size(), &callPtrs[0], funcThis);
 				if (r.Type() != tvtVoid) {
 					if (result) *result = r;
 					return TJS_S_OK;
@@ -195,12 +212,12 @@ class FnForeach : public tTJSDispatch {
 			}
 		} else {
 			std::vector<MemberEntry> members;
-			CollectMembers(target.Object, target.ObjThis, members, false);
+			CollectMembers(target.Object, target.ObjThis, members, true);
 			for (size_t i = 0; i < members.size(); ++i) {
 				callVals[0] = members[i].key;
 				callVals[1] = members[i].value;
 				tTJSVariant r;
-				func.FuncCall(0, NULL, NULL, &r, (tjs_int)callPtrs.size(), &callPtrs[0], NULL);
+				func.Object->FuncCall(0, NULL, NULL, &r, (tjs_int)callPtrs.size(), &callPtrs[0], funcThis);
 				if (r.Type() != tvtVoid) {
 					if (result) *result = r;
 					return TJS_S_OK;
@@ -218,7 +235,7 @@ static tTJSVariant CloneVariant(const tTJSVariant &src, std::map<iTJSDispatch2 *
 	std::map<iTJSDispatch2 *, tTJSVariant>::iterator it = seen.find(clo.Object);
 	if (it != seen.end()) return it->second;
 
-	if (IsArrayObject(clo.Object)) {
+	if (IsArrayObject(clo.Object, clo.ObjThis)) {
 		iTJSDispatch2 *arr = TJSCreateArrayObject();
 		tTJSVariant out(arr, arr);
 		arr->Release();
@@ -226,20 +243,14 @@ static tTJSVariant CloneVariant(const tTJSVariant &src, std::map<iTJSDispatch2 *
 		tjs_int cnt = GetArrayCount(clo.Object);
 		for (tjs_int i = 0; i < cnt; ++i) {
 			tTJSVariant elem;
-			clo.Object->PropGetByNum(0, i, &elem, clo.ObjThis ? clo.ObjThis : clo.Object);
+			clo.Object->PropGetByNum(TJS_IGNOREPROP, i, &elem, clo.ObjThis ? clo.ObjThis : clo.Object);
 			tTJSVariant cloned = CloneVariant(elem, seen, depth + 1);
-			arr->PropSetByNum(TJS_MEMBERENSURE, i, &cloned, arr);
+			arr->PropSetByNum(TJS_MEMBERENSURE | TJS_IGNOREPROP, i, &cloned, arr);
 		}
 		return out;
 	}
 
-	tTJSVariant clsName;
-	bool isDict = false;
-	if (TJS_FAILED(clo.Object->ClassInstanceInfo(TJS_CII_GET, 0, &clsName)) ||
-	    ttstr(clsName) == TJS_W("Dictionary")) {
-		isDict = true;
-	}
-	if (isDict) {
+	if (IsDictionaryObject(clo.Object, clo.ObjThis)) {
 		iTJSDispatch2 *dic = TJSCreateDictionaryObject();
 		tTJSVariant out(dic, dic);
 		dic->Release();
@@ -249,9 +260,14 @@ static tTJSVariant CloneVariant(const tTJSVariant &src, std::map<iTJSDispatch2 *
 		for (size_t i = 0; i < members.size(); ++i) {
 			ttstr k(members[i].key);
 			tTJSVariant cloned = CloneVariant(members[i].value, seen, depth + 1);
-			dic->PropSet(TJS_MEMBERENSURE, k.c_str(), NULL, &cloned, dic);
+			dic->PropSet(TJS_MEMBERENSURE | TJS_IGNOREPROP, k.c_str(), NULL, &cloned, dic);
 		}
 		return out;
+	}
+
+	tTJSVariant customClone;
+	if (TJS_SUCCEEDED(clo.Object->FuncCall(0, TJS_W("clone"), NULL, &customClone, 0, NULL, clo.ObjThis ? clo.ObjThis : clo.Object))) {
+		return customClone;
 	}
 	return src;
 }
@@ -462,11 +478,17 @@ class FnSafeEvalStorage : public tTJSDispatch {
 		if (numparams < 1) return TJS_E_BADPARAMCOUNT;
 		ttstr storage(*param[0]);
 		iTJSDispatch2 *context = NULL;
-		if (numparams >= 4 && param[3]->Type() == tvtObject) {
+		if (numparams >= 3 && param[2]->Type() == tvtObject) {
+			context = param[2]->AsObjectNoAddRef();
+		} else if (numparams >= 4 && param[3]->Type() == tvtObject) {
 			context = param[3]->AsObjectNoAddRef();
 		}
 		tTJSVariant r;
-		TVPExecuteStorage(storage, context, &r, true);
+		try {
+			TVPExecuteStorage(storage, context, &r, true);
+		} catch (...) {
+			r.Clear();
+		}
 		if (result) *result = r;
 		return TJS_S_OK;
 	}
@@ -1198,7 +1220,9 @@ static void PostRegistPackinOne() {
 
 	// Scripts constants & methods
 	RegisterIntConstant(TJS_W("Scripts"), TJS_W("pfMemberEnsure"), TJS_MEMBERENSURE);
+	RegisterIntConstant(TJS_W("Scripts"), TJS_W("pfMemberMustExist"), TJS_MEMBERMUSTEXIST);
 	RegisterIntConstant(TJS_W("Scripts"), TJS_W("pfIgnoreProp"), TJS_IGNOREPROP);
+	RegisterIntConstant(TJS_W("Scripts"), TJS_W("pfHiddenMember"), TJS_HIDDENMEMBER);
 	RegisterIntConstant(TJS_W("Scripts"), TJS_W("pfStaticMember"), TJS_STATICMEMBER);
 	RegisterDispatchMember(TJS_W("Scripts"), TJS_W("getObjectKeys"), new FnGetObjectKeys());
 	RegisterDispatchMember(TJS_W("Scripts"), TJS_W("getObjectCount"), new FnGetObjectCount());
