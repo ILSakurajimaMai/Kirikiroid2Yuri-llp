@@ -470,8 +470,8 @@ private:
 				v = (tjs_int64)arr.values[i];
 				arrObj->PropSetByNum(TJS_MEMBERENSURE, (tjs_uint)i, &v, arrObj);
 			}
-			result = tTJSVariant();
-			result = arrObj;
+			result.Clear();
+			result.SetObject(arrObj, arrObj);
 			arrObj->Release();
 			return true;
 		}
@@ -515,8 +515,8 @@ private:
 		if (tag == 0x20 || tag == 0x21) {
 			iTJSDispatch2 *obj = BuildTree(offset, depth);
 			if (!obj) return false;
-			result = tTJSVariant();
-			result = obj;
+			result.Clear();
+		result.SetObject(obj, obj);
 			obj->Release();
 			return true;
 		}
@@ -624,8 +624,8 @@ static iTJSDispatch2 *Create_NC_PSBFile() {
 				iTJSDispatch2 *root = _this->GetRoot();
 				if (!root)
 					TVPThrowExceptionMessage(TJS_W("PSBFile: no loaded psb data"));
-				*result = tTJSVariant();
-				*result = root;
+				result->Clear();
+			result->SetObject(root, root);
 				root->Release();
 				return TJS_S_OK;
 			}
