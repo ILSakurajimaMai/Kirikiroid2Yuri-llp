@@ -46,6 +46,8 @@ struct RenderedChar {
 struct KeyWaitEntry {
     int pos = 0;
     double time = 0.0;
+    KeyWaitEntry() = default;
+    KeyWaitEntry(int p, double t) : pos(p), time(t) {}
 };
 
 struct LinkRect {
@@ -53,6 +55,8 @@ struct LinkRect {
     int top = 0;
     int width = 0;
     int height = 0;
+    LinkRect() = default;
+    LinkRect(int l, int t, int w, int h) : left(l), top(t), width(w), height(h) {}
 };
 
 struct LinkInfo {
