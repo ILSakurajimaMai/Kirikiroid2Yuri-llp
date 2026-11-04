@@ -15389,6 +15389,78 @@ static const Entry kLookupTable[15199] = {
     {0xeee4cd16cc16389cULL, 0xff516e09cabd70feULL, 0x5ab6u, 6u},
 };
 
+// Compute normalized SipHash-2-4 domain hash (domain includes trailing '/' when non-empty).
+template <typename CharT>
+inline uint64_t ComputeDomainHash(const CharT* domain, size_t len) {
+    uint16_t norm[248];
+    size_t nlen = 0;
+    for (size_t i = 0; i < len && nlen < 238; ++i) {
+        uint16_t c = static_cast<uint16_t>(domain[i]);
+        if (c >= 'A' && c <= 'Z') c = static_cast<uint16_t>(c + ('a' - 'A'));
+        else if (c == '\\') c = '/';
+        if (c == '/') {
+            if (nlen == 0 || norm[nlen - 1] == '/') continue;
+        }
+        norm[nlen++] = c;
+    }
+    if (nlen > 0 && norm[nlen - 1] != '/') {
+        norm[nlen++] = '/';
+    }
+    static const uint8_t kSuffix[12] = {
+        'x', 0, 'p', 0, '3', 0, 'h', 0, 'n', 0, 'p', 0
+    };
+    uint8_t buf[520];
+    for (size_t i = 0; i < nlen; ++i) {
+        buf[2 * i] = static_cast<uint8_t>(norm[i] & 0xffu);
+        buf[2 * i + 1] = static_cast<uint8_t>((norm[i] >> 8) & 0xffu);
+    }
+    std::memcpy(buf + 2 * nlen, kSuffix, 12);
+    return SipHash24ZeroKey(buf, 2 * nlen + 12);
+}
+
+// Compute normalized BLAKE2s-256 lower-64-bit filename hash.
+template <typename CharT>
+inline uint64_t ComputeFileHashLo(const CharT* filename, size_t len) {
+    if (len == 0 || len > 240) return 0u;
+    static const uint8_t kSuffix[12] = {
+        'x', 0, 'p', 0, '3', 0, 'h', 0, 'n', 0, 'p', 0
+    };
+    uint8_t buf[520];
+    for (size_t i = 0; i < len; ++i) {
+        uint16_t c = static_cast<uint16_t>(filename[i]);
+        if (c >= 'A' && c <= 'Z') c = static_cast<uint16_t>(c + ('a' - 'A'));
+        buf[2 * i] = static_cast<uint8_t>(c & 0xffu);
+        buf[2 * i + 1] = static_cast<uint8_t>((c >> 8) & 0xffu);
+    }
+    std::memcpy(buf + 2 * len, kSuffix, 12);
+    return Blake2s256Lo64(buf, 2 * len + 12);
+}
+
+// Binary-search kLookupTable by precomputed (archive_id, dom_hash, file_hash_lo).
+inline uint16_t LookupByHashes(uint8_t archive_id, uint64_t dom_hash, uint64_t file_hash_lo) {
+    if (archive_id == 0xffu) return 0u;
+    const size_t count = sizeof(kLookupTable) / sizeof(kLookupTable[0]);
+    size_t lo = 0, hi = count;
+    while (lo < hi) {
+        const size_t mid = lo + ((hi - lo) >> 1);
+        const Entry& e = kLookupTable[mid];
+        if (e.archive_id < archive_id ||
+            (e.archive_id == archive_id && e.domain_hash < dom_hash) ||
+            (e.archive_id == archive_id && e.domain_hash == dom_hash && e.file_hash_lo < file_hash_lo)) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    if (lo < count) {
+        const Entry& e = kLookupTable[lo];
+        if (e.archive_id == archive_id && e.domain_hash == dom_hash && e.file_hash_lo == file_hash_lo) {
+            return e.phys_char;
+        }
+    }
+    return 0u;
+}
+
 // Returns 1-char physical XP3 entry code unit, or 0 if not found.
 template <typename CharT>
 inline uint16_t LookupPhysicalChar(uint8_t archive_id, const CharT* path, size_t len) {
@@ -15417,46 +15489,9 @@ inline uint16_t LookupPhysicalChar(uint8_t archive_id, const CharT* path, size_t
     const size_t file_chars = nlen - split;
     if (file_chars == 0) return 0u;
 
-    static const uint8_t kSuffix[12] = {
-        'x', 0, 'p', 0, '3', 0, 'h', 0, 'n', 0, 'p', 0
-    };
-
-    uint8_t buf[520];
-    for (size_t i = 0; i < dom_chars; ++i) {
-        buf[2 * i] = static_cast<uint8_t>(norm[i] & 0xffu);
-        buf[2 * i + 1] = static_cast<uint8_t>((norm[i] >> 8) & 0xffu);
-    }
-    std::memcpy(buf + 2 * dom_chars, kSuffix, 12);
-    const uint64_t dom_hash = SipHash24ZeroKey(buf, 2 * dom_chars + 12);
-
-    for (size_t i = 0; i < file_chars; ++i) {
-        uint16_t c = norm[split + i];
-        buf[2 * i] = static_cast<uint8_t>(c & 0xffu);
-        buf[2 * i + 1] = static_cast<uint8_t>((c >> 8) & 0xffu);
-    }
-    std::memcpy(buf + 2 * file_chars, kSuffix, 12);
-    const uint64_t file_hash_lo = Blake2s256Lo64(buf, 2 * file_chars + 12);
-
-    const size_t count = sizeof(kLookupTable) / sizeof(kLookupTable[0]);
-    size_t lo = 0, hi = count;
-    while (lo < hi) {
-        const size_t mid = lo + ((hi - lo) >> 1);
-        const Entry& e = kLookupTable[mid];
-        if (e.archive_id < archive_id ||
-            (e.archive_id == archive_id && e.domain_hash < dom_hash) ||
-            (e.archive_id == archive_id && e.domain_hash == dom_hash && e.file_hash_lo < file_hash_lo)) {
-            lo = mid + 1;
-        } else {
-            hi = mid;
-        }
-    }
-    if (lo < count) {
-        const Entry& e = kLookupTable[lo];
-        if (e.archive_id == archive_id && e.domain_hash == dom_hash && e.file_hash_lo == file_hash_lo) {
-            return e.phys_char;
-        }
-    }
-    return 0u;
+    const uint64_t dom_hash = ComputeDomainHash(norm, dom_chars);
+    const uint64_t file_hash_lo = ComputeFileHashLo(norm + split, file_chars);
+    return LookupByHashes(archive_id, dom_hash, file_hash_lo);
 }
 
 } // namespace hxv4

@@ -125,6 +125,9 @@ static int TVPInternalEnumFonts(FT_Byte* pBuf, int buflen, const ttstr &FontPath
 				info.Index = i;
 				info.Getter = getter;
 				TVPFontNames.Add(fontname, info);
+				if (TJS_strstr(FontPath.c_str(), TJS_W("sourcehansansjp-bold.otf")) != nullptr) {
+					TVPDefaultFontName = fontname;
+				}
 				addCount = 1;
 			}
 			/*if (!addCount)*/ {

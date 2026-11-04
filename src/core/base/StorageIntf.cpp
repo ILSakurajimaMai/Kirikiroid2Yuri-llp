@@ -991,12 +991,20 @@ std::vector<ttstr> TVPAutoPathList;
 tTJSHashCache<ttstr, ttstr> TVPAutoPathCache(TVP_DEFAULT_AUTOPATH_CACHE_NUM);
 tTJSHashTable<ttstr, ttstr, tTJSHashFunc<ttstr>, TVP_AUTO_PATH_HASH_SIZE>
 	TVPAutoPathTable;
+struct tTVPHxv4AutoPathEntry
+{
+	ttstr Path;
+	uint64_t DomainHash;
+	uint8_t ArchiveId;
+};
+static std::vector<tTVPHxv4AutoPathEntry> TVPHxv4AutoPathEntries;
 bool AutoPathTableInit = false;
 //---------------------------------------------------------------------------
 static void TVPClearAutoPathCache()
 {
 	TVPAutoPathCache.Clear();
 	TVPAutoPathTable.Clear();
+	TVPHxv4AutoPathEntries.clear();
 	AutoPathTableInit = false;
 }
 //---------------------------------------------------------------------------
@@ -1058,6 +1066,7 @@ static tjs_uint TVPRebuildAutoPathTable()
 	tTJSCriticalSectionHolder cs_holder(TVPCreateStreamCS);
 
 	TVPAutoPathTable.Clear();
+	TVPHxv4AutoPathEntries.clear();
 
 	tjs_uint64 tick = TVPGetTickCount();
  	TVPAddLog( (const tjs_char*)TVPInfoRebuildingAutoPath );
@@ -1080,6 +1089,19 @@ static tjs_uint TVPRebuildAutoPathTable()
 			tTVPArchive::NormalizeInArchiveStorageName(in_arc_name);
 			tjs_int in_arc_name_len = in_arc_name.GetLen();
 
+			const uint8_t hxv4_aid = hxv4::ResolveArchiveId(
+				arcname.c_str(), (size_t)arcname.GetLen());
+			if(hxv4_aid != 0xffu)
+			{
+				tTVPHxv4AutoPathEntry hxv4_entry;
+				hxv4_entry.Path = path;
+				hxv4_entry.DomainHash = hxv4::ComputeDomainHash(
+					in_arc_name.c_str(), (size_t)in_arc_name.GetLen());
+				hxv4_entry.ArchiveId = hxv4_aid;
+				TVPHxv4AutoPathEntries.push_back(hxv4_entry);
+				count ++;
+			}
+
 			tTVPArchive *arc;
 			arc = TVPArchiveCache.Get(arcname);
 
@@ -1095,6 +1117,8 @@ static tjs_uint TVPRebuildAutoPathTable()
 					for(; i < (tjs_int)storagecount; i++)
 					{
 						ttstr name = arc->GetName(i);
+						if(hxv4_aid != 0xffu && name.GetLen() == 1 && name[0] >= 0x5000)
+							break; // 1-char Hxv4 physical entries are resolved via TVPHxv4AutoPathEntries
 
 						if(name.StartsWith(in_arc_name))
 						{
@@ -1209,6 +1233,23 @@ ttstr TVPGetPlacedPath(const ttstr & name)
 		ttstr found = *result + storagename;
 		TVPAutoPathCache.Add(name, found);
 		return found;
+	}
+
+	if(!TVPHxv4AutoPathEntries.empty() && !storagename.IsEmpty())
+	{
+		const uint64_t file_hash_lo = hxv4::ComputeFileHashLo(
+			storagename.c_str(), (size_t)storagename.GetLen());
+		for(std::vector<tTVPHxv4AutoPathEntry>::const_reverse_iterator it =
+			TVPHxv4AutoPathEntries.rbegin();
+			it != TVPHxv4AutoPathEntries.rend(); ++it)
+		{
+			if(hxv4::LookupByHashes(it->ArchiveId, it->DomainHash, file_hash_lo) != 0)
+			{
+				ttstr found = it->Path + storagename;
+				TVPAutoPathCache.Add(name, found);
+				return found;
+			}
+		}
 	}
 
 	// not found
