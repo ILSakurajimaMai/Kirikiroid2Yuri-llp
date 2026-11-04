@@ -110,7 +110,7 @@ jobs:
         ./gradlew assembleDebug --no-daemon
     
     - name: upload apk artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: kirikiroid2yuri-debug-apk
         path: ./build_android/outputs/apk/debug/*.apk
