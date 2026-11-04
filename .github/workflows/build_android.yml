@@ -95,6 +95,8 @@ jobs:
           printf 'SIGN_KEY_ALIAS=androiddebugkey\nSIGN_KEY_PASS=android\nSIGN_STORE_PASS=android\n' \
             > project/android/app/sign.properties
         fi
+        ls -la project/android/app/sign.jks project/android/app/sign.properties 2>&1 || true
+        cat project/android/app/sign.properties 2>&1 || true
         cd project/android
         chmod +x ./gradlew
         ./gradlew assembleDebug --no-daemon
