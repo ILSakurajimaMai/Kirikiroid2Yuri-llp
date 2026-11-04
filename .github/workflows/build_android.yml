@@ -1,4 +1,4 @@
-name: build android
+﻿name: build android
 on:
   push: {tags:  ['v*'], branches: ['yuri', 'llp-build']} #  Push events to matching v*, i.e. v1.0, v20.15.10
   workflow_dispatch: {}
@@ -11,7 +11,7 @@ env:
 
 jobs:
   fetch_thirdparty_build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v3
     
@@ -29,7 +29,7 @@ jobs:
         tar xvzf thirdparty_build.tar.gz
 
   fetch_thirdparty_port:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v3
     
@@ -47,7 +47,7 @@ jobs:
         tar xvzf thirdparty_port.tar.gz
 
   build_android:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     needs: 
       - fetch_thirdparty_build
       - fetch_thirdparty_port
