@@ -39,6 +39,21 @@ android {
         release {
             storeFile file('sign.jks')
             def signPropsFile = file('sign.properties')
+            if (!storeFile.exists()) {
+                // No signing key in this checkout (fresh fork/CI): generate a
+                // local keystore so the APK is still installable.
+                def gen = ['keytool', '-genkeypair', '-v',
+                           '-keystore', storeFile.absolutePath,
+                           '-storepass', 'android', '-keypass', 'android',
+                           '-alias', 'androiddebugkey',
+                           '-keyalg', 'RSA', '-keysize', '2048',
+                           '-validity', '10000',
+                           '-dname', 'CN=Android Debug,O=Android,C=US'].execute()
+                gen.waitFor()
+                if (storeFile.exists()) {
+                    println "psbport: generated local keystore at ${storeFile}"
+                }
+            }
             if (signPropsFile.exists()) {
                 Properties signProps = new Properties()
                 signProps.load(new FileInputStream(signPropsFile))
@@ -47,9 +62,17 @@ android {
                 storePassword signProps['SIGN_STORE_PASS']
             }
             else {
-                keyAlias System.getenv("SIGN_KEY_ALIAS")
-                keyPassword System.getenv("SIGN_KEY_PASS")
-                storePassword System.getenv("SIGN_STORE_PASS")
+                if (!storeFile.exists()) {
+                    // keytool failed too; fall back to explicit debug creds
+                    keyAlias 'androiddebugkey'
+                    keyPassword 'android'
+                    storePassword 'android'
+                }
+                else {
+                    keyAlias System.getenv("SIGN_KEY_ALIAS")
+                    keyPassword System.getenv("SIGN_KEY_PASS")
+                    storePassword System.getenv("SIGN_STORE_PASS")
+                }
             }
         }
     }
