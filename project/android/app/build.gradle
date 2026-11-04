@@ -76,6 +76,7 @@ android {
                 keyPassword System.getenv("SIGN_KEY_PASS")
                 storePassword System.getenv("SIGN_STORE_PASS")
             }
+            println "psbport: signing release: jks=${storeFile.exists()} props=${signPropsFile.exists()} alias=${keyAlias != null ? keyAlias : '<null>'}"
         }
     }
     buildTypes {
