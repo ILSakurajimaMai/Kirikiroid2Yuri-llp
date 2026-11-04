@@ -719,12 +719,33 @@ bool TVPCheckStartupPath(const std::string &path) {
 	return true;
 }
 
+static bool CreateFoldersPosix(const std::string &folderPath) {
+	if (folderPath.empty()) return true;
+	std::string p = folderPath;
+	while (p.size() > 1 && (p.back() == '/' || p.back() == '\\')) p.pop_back();
+	struct stat st;
+	if (stat(p.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) return true;
+	size_t pos = p.find_last_of("/\\");
+	if (pos != std::string::npos && pos > 0) {
+		if (!CreateFoldersPosix(p.substr(0, pos))) return false;
+	}
+	if (mkdir(p.c_str(), 0777) == 0) return true;
+	if (stat(p.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) return true;
+	return false;
+}
+
 bool TVPCreateFolders(const ttstr &folder)
 {
+	std::string path = folder.AsStdString();
+	if (CreateFoldersPosix(path)) return true;
 	JniMethodInfo methodInfo;
 	if (JniHelper::getStaticMethodInfo(methodInfo, "org/tvp/kirikiri2/KR2Activity", "CreateFolders", "(Ljava/lang/String;)Z")) {
-		jstring jstr = methodInfo.env->NewStringUTF(folder.AsStdString().c_str());
+		jstring jstr = methodInfo.env->NewStringUTF(path.c_str());
 		bool ret = methodInfo.env->CallStaticBooleanMethod(methodInfo.classID, methodInfo.methodID, jstr);
+		if (methodInfo.env->ExceptionCheck()) {
+			methodInfo.env->ExceptionClear();
+			ret = false;
+		}
 		methodInfo.env->DeleteLocalRef(jstr);
 		methodInfo.env->DeleteLocalRef(methodInfo.classID);
 		return ret;
@@ -743,10 +764,14 @@ static bool TVPWriteDataToFileJava(const std::string &filename, const void* data
 			jbyteArray arr = methodInfo.env->NewByteArray(size);
 			methodInfo.env->SetByteArrayRegion(arr, 0, size, (jbyte*)data);
 			ret = methodInfo.env->CallStaticBooleanMethod(methodInfo.classID, methodInfo.methodID, jstr, arr);
+			if (methodInfo.env->ExceptionCheck()) {
+				methodInfo.env->ExceptionClear();
+				ret = false;
+			}
 			methodInfo.env->DeleteLocalRef(arr);
 			methodInfo.env->DeleteLocalRef(jstr);
-			methodInfo.env->DeleteLocalRef(methodInfo.classID);
 		} while (!fileutil->isFileExist(filename) && --retry);
+		methodInfo.env->DeleteLocalRef(methodInfo.classID);
 		return ret;
 	}
 	return false;
@@ -831,10 +856,18 @@ void TVPShowIME(int x, int y, int w, int h) {
 void TVPProcessInputEvents() {}
 
 bool TVPDeleteFile(const std::string &filename) {
+	if (filename.empty()) return false;
+	struct stat st;
+	if (stat(filename.c_str(), &st) != 0) return true;
+	if (remove(filename.c_str()) == 0 || unlink(filename.c_str()) == 0) return true;
 	JniMethodInfo methodInfo;
 	if (JniHelper::getStaticMethodInfo(methodInfo, "org/tvp/kirikiri2/KR2Activity", "DeleteFile", "(Ljava/lang/String;)Z")) {
 		jstring jstr = methodInfo.env->NewStringUTF(filename.c_str());
 		bool ret = methodInfo.env->CallStaticBooleanMethod(methodInfo.classID, methodInfo.methodID, jstr);
+		if (methodInfo.env->ExceptionCheck()) {
+			methodInfo.env->ExceptionClear();
+			ret = false;
+		}
 		methodInfo.env->DeleteLocalRef(jstr);
 		methodInfo.env->DeleteLocalRef(methodInfo.classID);
 		return ret;
@@ -843,11 +876,21 @@ bool TVPDeleteFile(const std::string &filename) {
 }
 
 bool TVPRenameFile(const std::string &from, const std::string &to) {
+	if (from.empty() || to.empty()) return false;
+	struct stat st;
+	if (stat(to.c_str(), &st) == 0) {
+		remove(to.c_str());
+	}
+	if (rename(from.c_str(), to.c_str()) == 0) return true;
 	JniMethodInfo methodInfo;
 	if (JniHelper::getStaticMethodInfo(methodInfo, "org/tvp/kirikiri2/KR2Activity", "RenameFile", "(Ljava/lang/String;Ljava/lang/String;)Z")) {
 		jstring jstr = methodInfo.env->NewStringUTF(from.c_str());
 		jstring jstr2 = methodInfo.env->NewStringUTF(to.c_str());
 		bool ret = methodInfo.env->CallStaticBooleanMethod(methodInfo.classID, methodInfo.methodID, jstr, jstr2);
+		if (methodInfo.env->ExceptionCheck()) {
+			methodInfo.env->ExceptionClear();
+			ret = false;
+		}
 		methodInfo.env->DeleteLocalRef(jstr);
 		methodInfo.env->DeleteLocalRef(jstr2);
 		methodInfo.env->DeleteLocalRef(methodInfo.classID);

@@ -1,4 +1,4 @@
-﻿name: build android
+name: build android
 on:
   push: {tags:  ['v*'], branches: ['yuri', 'llp-build']} #  Push events to matching v*, i.e. v1.0, v20.15.10
   workflow_dispatch: {}
@@ -84,27 +84,8 @@ jobs:
         wget https://github.com/YuriSizuku/Kirikiroid2Yuri/releases/download/1.3.9_yuri/Kirikiroid2_yuri_1.3.9.apk
         7z x Kirikiroid2_yuri_1.3.9.apk assets
         sudo mkdir /build_android && sudo chmod 777 /build_android
-        if [ ! -f project/android/app/sign.jks ]; then
-          JAVA8=$(dirname "$(dirname "$(which java)")")
-          echo "using keytool from $JAVA8"
-          keytool -genkeypair -v -keystore project/android/app/sign.jks \
-            -storetype JKS \
-            -storepass android -keypass android \
-            -alias androiddebugkey -keyalg RSA -keysize 2048 \
-            -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-          printf 'SIGN_KEY_ALIAS=androiddebugkey\nSIGN_KEY_PASS=android\nSIGN_STORE_PASS=android\n' \
-            > project/android/app/sign.properties
-        fi
-        ls -la project/android/app/sign.jks project/android/app/sign.properties 2>&1 || true
-        cat project/android/app/sign.properties 2>&1 || true
-        file project/android/app/sign.jks 2>&1 || true
-        head -c 8 project/android/app/sign.jks | od -c | head -2
-        echo "--- keytool -list with JKS type ---"
-        keytool -list -keystore project/android/app/sign.jks -storepass android -storetype JKS 2>&1 | head -8 || true
-        echo "--- keytool -list with PKCS12 type ---"
-        keytool -list -keystore project/android/app/sign.jks -storepass android -storetype PKCS12 2>&1 | head -8 || true
-        echo "--- keytool -list default type ---"
-        keytool -list -keystore project/android/app/sign.jks -storepass android 2>&1 | head -8 || true
+        mkdir -p ~/.android
+        cp project/android/app/debug_fixed.keystore ~/.android/debug.keystore
         cd project/android
         chmod +x ./gradlew
         ./gradlew assembleDebug --no-daemon

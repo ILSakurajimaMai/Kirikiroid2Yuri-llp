@@ -979,57 +979,78 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     }
     
     static public boolean RenameFile(String from, String to) {
-    	File file = new File(from);
-    	File target = new File(to);
-    	if(!file.exists())
-    		return false;
-    	if(target.exists()) {
-    		if(!DeleteFile(target.getAbsolutePath())) return false;
+    	try {
+    		if (from == null || to == null) return false;
+	    	File file = new File(from);
+	    	File target = new File(to);
+	    	if(!file.exists())
+	    		return false;
+	    	if(target.exists()) {
+	    		if(!DeleteFile(target.getAbsolutePath())) return false;
+	    	}
+	    	
+	    	File parent = target.getParentFile();
+	    	if(parent != null && !parent.exists()) {
+	    		if(!CreateFolders(parent.getAbsolutePath())) return false;
+	    	}
+	    	// Try the normal way
+	        if(file.renameTo(target)) return true;
+
+	        // Fallback: stream copy + delete on normal filesystem
+	        try {
+	        	FileInputStream input = new FileInputStream(file);
+	        	FileOutputStream output = new FileOutputStream(target);
+	        	byte[] buf = new byte[65536];
+	        	int n;
+	        	while ((n = input.read(buf)) > 0) {
+	        		output.write(buf, 0, n);
+	        	}
+	        	input.close();
+	        	output.close();
+	        	file.delete();
+	        	return true;
+	        } catch (IOException ignored) {
+	        }
+	        
+	        // Try with Storage Access Framework.
+	        if (Build.VERSION.SDK_INT>=Build.VERSION_CODES.LOLLIPOP /*&& isOnExtSdCard(file, sInstance)*/) {
+	            DocumentFile document = getDocumentFile(file, false, sInstance);
+	        	if(document != null && document.renameTo(to))
+	        		return true;
+	        }
+	        
+	        // Try Media Store Hack
+	        if (Build.VERSION.SDK_INT==Build.VERSION_CODES.KITKAT) {
+	        	try {
+					FileInputStream input = new FileInputStream(file);
+		        	int filesize = (int) file.length();
+					byte []buffer = new byte[filesize];
+					input.read(buffer);
+					input.close();
+	            	OutputStream out = MediaStoreHack.getOutputStream(sInstance, target.getAbsolutePath());
+	                out.write(buffer);
+	                out.close();
+	                return MediaStoreHack.delete(sInstance, file);
+				} catch (IOException e) {
+					return false;
+				}
+	        }
+    	} catch (Throwable e) {
+    		Log.e("FileUtils", "Error in RenameFile", e);
     	}
-    	
-    	File parent = target.getParentFile();
-    	if(!parent.exists()) {
-    		if(!CreateFolders(parent.getAbsolutePath())) return false;
-    	}
-    	// Try the normal way
-        if(file.renameTo(target)) return true;
-        
-        // Try with Storage Access Framework.
-        if (Build.VERSION.SDK_INT>=Build.VERSION_CODES.LOLLIPOP /*&& isOnExtSdCard(file, sInstance)*/) {
-            DocumentFile document = getDocumentFile(file, false, sInstance);
-        	if(document.renameTo(to))
-        		return true;
-        }
-        
-        // Try Media Store Hack
-        if (Build.VERSION.SDK_INT==Build.VERSION_CODES.KITKAT) {
-        	try {
-				FileInputStream input = new FileInputStream(file);
-	        	int filesize = (int) file.length();
-				byte []buffer = new byte[filesize];
-				input.read(buffer);
-				input.close();
-            	OutputStream out = MediaStoreHack.getOutputStream(sInstance, target.getAbsolutePath());
-                out.write(buffer);
-                out.close();
-                return MediaStoreHack.delete(sInstance, file);
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				return false;
-				//e.printStackTrace();
-			}
-        }
-        
     	return false;
     }
     
     public static final boolean deleteFilesInFolder(final File folder,Context context) {
         boolean totalSuccess = true;
-        if(folder==null)
+        if(folder==null || !folder.exists())
             return false;
         if (folder.isDirectory()) {
-            for (File child : folder.listFiles()) {
-                deleteFilesInFolder(child, context);
+            File[] children = folder.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteFilesInFolder(child, context);
+                }
             }
 
             if (!folder.delete())
@@ -1043,35 +1064,43 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     }
 
     static public boolean DeleteFile(String path) {
-    	File file = new File(path);
-    	// First try the normal deletion.
-        boolean fileDelete = deleteFilesInFolder(file, sInstance);
-        if (file.delete() || fileDelete)
-            return true;
-
-        // Try with Storage Access Framework.
-        if (Build.VERSION.SDK_INT>=Build.VERSION_CODES.LOLLIPOP && isOnExtSdCard(file, sInstance)) {
-
-            DocumentFile document = getDocumentFile(file, false,sInstance);
-            return document.delete();
-        }
-
-        // Try the Kitkat workaround.
-        if (Build.VERSION.SDK_INT==Build.VERSION_CODES.KITKAT) {
-            ContentResolver resolver = sInstance.getContentResolver();
-
-            try {
-                Uri uri = MediaStoreHack.getUriFromFile(file.getAbsolutePath(),sInstance);
-                resolver.delete(uri, null, null);
-                return !file.exists();
-            }
-            catch (Exception e) {
-                Log.e("FileUtils", "Error when deleting file " + file.getAbsolutePath(), e);
-                return false;
-            }
-        }
-
-        return !file.exists();
+    	try {
+    		if (path == null) return false;
+	    	File file = new File(path);
+	    	if (!file.exists()) return true;
+	    	// First try the normal deletion.
+	        boolean fileDelete = deleteFilesInFolder(file, sInstance);
+	        if (file.delete() || fileDelete || !file.exists())
+	            return true;
+	
+	        // Try with Storage Access Framework.
+	        if (Build.VERSION.SDK_INT>=Build.VERSION_CODES.LOLLIPOP && isOnExtSdCard(file, sInstance)) {
+	            DocumentFile document = getDocumentFile(file, false,sInstance);
+	            if (document != null) {
+	                return document.delete();
+	            }
+	        }
+	
+	        // Try the Kitkat workaround.
+	        if (Build.VERSION.SDK_INT==Build.VERSION_CODES.KITKAT) {
+	            ContentResolver resolver = sInstance.getContentResolver();
+	
+	            try {
+	                Uri uri = MediaStoreHack.getUriFromFile(file.getAbsolutePath(),sInstance);
+	                resolver.delete(uri, null, null);
+	                return !file.exists();
+	            }
+	            catch (Exception e) {
+	                Log.e("FileUtils", "Error when deleting file " + file.getAbsolutePath(), e);
+	                return false;
+	            }
+	        }
+	
+	        return !file.exists();
+    	} catch (Throwable e) {
+    		Log.e("FileUtils", "Error in DeleteFile", e);
+    		return false;
+    	}
     }
     
 	public static OutputStream getOutputStream(@NonNull final File target,Context context,long s)throws Exception {
@@ -1085,7 +1114,9 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 			    if (Build.VERSION.SDK_INT>=Build.VERSION_CODES.LOLLIPOP) {
 			        // Storage Access Framework
 			    DocumentFile targetDocument = getDocumentFile(target, false,context);
-			    outStream = context.getContentResolver().openOutputStream(targetDocument.getUri());
+			    if (targetDocument != null) {
+			        outStream = context.getContentResolver().openOutputStream(targetDocument.getUri());
+			    }
 			} else if (Build.VERSION.SDK_INT==Build.VERSION_CODES.KITKAT) {
 			    // Workaround for Kitkat ext SD card
 		        return MediaStoreHack.getOutputStream(context,target.getPath());
@@ -1100,18 +1131,19 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 
     
     static public boolean WriteFile(String path, byte data[]) {
-        File target = new File(path);
-        if(target.exists()) {
-        	DeleteFile(target.getAbsolutePath()); // to avoid number suffix name
-        } else {
-            File parent = target.getParentFile();
-            if(!parent.exists())
-            	CreateFolders(parent.getAbsolutePath());
-        }
-        OutputStream out = null;
-        
-    	// Try the normal way
-    	try {
+        try {
+            if (path == null || data == null) return false;
+            File target = new File(path);
+            if(target.exists()) {
+            	DeleteFile(target.getAbsolutePath()); // to avoid number suffix name
+            } else {
+                File parent = target.getParentFile();
+                if(parent != null && !parent.exists())
+                	CreateFolders(parent.getAbsolutePath());
+            }
+            OutputStream out = null;
+            
+        	// Try the normal way
         	if(isWritable(target)) {
         		OutputStream os = new FileOutputStream(target);
     			os.write(data);
@@ -1122,13 +1154,12 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
             // Try with Storage Access Framework.
             if (Build.VERSION.SDK_INT>=Build.VERSION_CODES.LOLLIPOP /*&& isOnExtSdCard(file, sInstance)*/) {
                 DocumentFile document = getDocumentFile(target, false, sInstance);
-                try {
-                	Uri docUri = document.getUri();
-                    out = sInstance.getContentResolver().openOutputStream(docUri);
-                } //catch (FileNotFoundException e) {
-                    // e.printStackTrace();}
-                catch (IOException e) {
-                    // e.printStackTrace();
+                if (document != null) {
+                    try {
+                    	Uri docUri = document.getUri();
+                        out = sInstance.getContentResolver().openOutputStream(docUri);
+                    } catch (IOException e) {
+                    }
                 }
             } else if (Build.VERSION.SDK_INT==Build.VERSION_CODES.KITKAT) {
                 // Workaround for Kitkat ext SD card
@@ -1143,39 +1174,46 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
                 out.close();
                 return true;
             }
-		} catch (FileNotFoundException e) {
-			//return false;
-		} catch (IOException e) {
-			//return false;
+		} catch (Throwable e) {
+			Log.e("FileUtils", "Error in WriteFile", e);
 		}
 
     	return false;
     }
     
     static public boolean CreateFolders(String path) {
-    	File file = new File(path);
-    	
-        // Try the normal way
-    	if(file.mkdirs()) {
-    		return true;
+    	try {
+    		if (path == null || path.isEmpty()) return false;
+	    	File file = new File(path);
+	    	if (file.exists() && file.isDirectory()) {
+	    		return true;
+	    	}
+	    	
+	        // Try the normal way
+	    	if(file.mkdirs() || (file.exists() && file.isDirectory())) {
+	    		return true;
+	    	}
+	
+	        // Try with Storage Access Framework.
+	        if (Build.VERSION.SDK_INT>=Build.VERSION_CODES.LOLLIPOP /*&& FileUtil.isOnExtSdCard(file, context)*/) {
+	            DocumentFile document = getDocumentFile(file, true,sInstance);
+	            // getDocumentFile implicitly creates the directory.
+	            if (document != null) {
+	                return document.exists();
+	            }
+	        }
+	        
+	        // Try the Kitkat workaround.
+	        if (Build.VERSION.SDK_INT==Build.VERSION_CODES.KITKAT) {
+	            try {
+	            	return MediaStoreHack.mkdir(sInstance,file);
+	            } catch (IOException e) {
+	                //return false;
+	            }
+	        }
+    	} catch (Throwable e) {
+    		Log.e("FileUtils", "Error in CreateFolders: " + path, e);
     	}
-
-        // Try with Storage Access Framework.
-        if (Build.VERSION.SDK_INT>=Build.VERSION_CODES.LOLLIPOP /*&& FileUtil.isOnExtSdCard(file, context)*/) {
-            DocumentFile document = getDocumentFile(file, true,sInstance);
-            // getDocumentFile implicitly creates the directory.
-
-            return document.exists();
-        }
-        
-        // Try the Kitkat workaround.
-        if (Build.VERSION.SDK_INT==Build.VERSION_CODES.KITKAT) {
-            try {
-            	return MediaStoreHack.mkdir(sInstance,file);
-            } catch (IOException e) {
-                //return false;
-            }
-        }
         
     	return false;
     }
