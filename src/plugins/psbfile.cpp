@@ -1,4 +1,4 @@
-// psbfile.cpp — PSB (pimg) container plugin for Kirikiroid2
+﻿// psbfile.cpp â€” PSB (pimg) container plugin for Kirikiroid2
 //
 // Provides the "PSBFile" TJS class and the "psb://" storage media so games
 // whose UI is packed in PSB image containers (.pimg) can render on
@@ -462,7 +462,7 @@ private:
 
 		if (tag >= 0x0D && tag <= 0x14) {
 			// packed uint array
-			PsbReader::PsbArray arr;
+			PsbArray arr;
 			if (!data->readArray(offset, arr)) return false;
 			iTJSDispatch2 *arrObj = TJSCreateArrayObject();
 			for (size_t i = 0; i < arr.values.size(); i++) {
@@ -531,7 +531,7 @@ private:
 		tjs_uint tag = data->buf[offset];
 
 		if (tag == 0x20) {
-			PsbReader::PsbArray offsets;
+			PsbArray offsets;
 			if (!data->readArray(offset + 1, offsets)) return NULL;
 			iTJSDispatch2 *arr = TJSCreateArrayObject();
 			tjs_uint base = offsets.end;
@@ -547,7 +547,7 @@ private:
 		}
 
 		if (tag == 0x21) {
-			PsbReader::PsbArray names, offsets;
+			PsbArray names, offsets;
 			if (!data->readArray(offset + 1, names)) return NULL;
 			if (!data->readArray(names.end, offsets)) return NULL;
 			if (names.values.size() != offsets.values.size()) return NULL;
