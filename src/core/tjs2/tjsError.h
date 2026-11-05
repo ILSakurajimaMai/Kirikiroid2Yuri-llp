@@ -186,11 +186,17 @@ public:
 //---------------------------------------------------------------------------
 void TJS_eTJS();
 //---------------------------------------------------------------------------
+// llp7: records message + throw-site backtrace of each new eTJSError
+// (Android logcat tag "krkr2-diag") so std::terminate can report which
+// error escaped through a noexcept frame.
+void TJSDiagOnErrorCreated(const ttstr & msg);
+void TJSDiagDumpLastError(const char *reason);
+//---------------------------------------------------------------------------
 class eTJSError : public eTJS
 {
 public:
 	eTJSError(const ttstr & Msg) :
-		Message(Msg) {;}
+		Message(Msg) { TJSDiagOnErrorCreated(Message); }
 	const ttstr & GetMessage() const { return Message; }
 
 	void AppendMessage(const ttstr & msg) { Message += msg; }

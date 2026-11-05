@@ -17,8 +17,139 @@
 
 #define TJS_MAX_TRACE_TEXT_LEN 1500
 
+#if defined(__ANDROID__)
+#include <android/log.h>
+#include <unwind.h>
+#include <dlfcn.h>
+#include <cxxabi.h>
+#include <exception>
+#include <cstdlib>
+#include <cstring>
+#include <cstdint>
+#endif
+
 namespace TJS
 {
+
+//---------------------------------------------------------------------------
+// llp7 diagnostics : last eTJSError + backtrace, reported by std::terminate
+//---------------------------------------------------------------------------
+#if defined(__ANDROID__)
+namespace {
+const int kDiagMaxFrames = 40;
+struct tDiagTrace { void *pcs[kDiagMaxFrames]; int count; };
+
+_Unwind_Reason_Code DiagUnwindCallback(struct _Unwind_Context *ctx, void *arg)
+{
+	tDiagTrace *t = static_cast<tDiagTrace *>(arg);
+	uintptr_t pc = _Unwind_GetIP(ctx);
+	if(pc)
+	{
+		if(t->count >= kDiagMaxFrames) return _URC_END_OF_STACK;
+		t->pcs[t->count++] = reinterpret_cast<void *>(pc);
+	}
+	return _URC_NO_REASON;
+}
+
+void DiagCapture(tDiagTrace &t)
+{
+	t.count = 0;
+	_Unwind_Backtrace(DiagUnwindCallback, &t);
+}
+
+void DiagDump(const char *title, const tDiagTrace &t)
+{
+	for(int i = 0; i < t.count; i++)
+	{
+		Dl_info info;
+		const char *lib = "?";
+		const char *sym = "?";
+		char *dem = nullptr;
+		uintptr_t pc = reinterpret_cast<uintptr_t>(t.pcs[i]);
+		uintptr_t off = 0, rel = 0;
+		if(dladdr(t.pcs[i], &info))
+		{
+			if(info.dli_fname)
+			{
+				const char *slash = strrchr(info.dli_fname, '/');
+				lib = slash ? slash + 1 : info.dli_fname;
+			}
+			rel = pc - reinterpret_cast<uintptr_t>(info.dli_fbase);
+			if(info.dli_sname)
+			{
+				int st = 0;
+				dem = abi::__cxa_demangle(info.dli_sname, nullptr, nullptr, &st);
+				sym = dem ? dem : info.dli_sname;
+				off = pc - reinterpret_cast<uintptr_t>(info.dli_saddr);
+			}
+		}
+		__android_log_print(ANDROID_LOG_ERROR, "krkr2-diag",
+			"%s #%02d %s+0x%zx %s+0x%zx", title, i, lib, (size_t)rel, sym, (size_t)off);
+		free(dem);
+	}
+}
+
+thread_local char g_DiagLastMsg[1024];
+thread_local tDiagTrace g_DiagLastTrace;
+thread_local int g_DiagLogged = 0;
+
+void DiagTerminate()
+{
+	__android_log_print(ANDROID_LOG_FATAL, "krkr2-diag", "std::terminate called");
+	if(std::exception_ptr p = std::current_exception())
+	{
+		try { std::rethrow_exception(p); }
+		catch(const eTJS &e)
+		{
+			__android_log_print(ANDROID_LOG_FATAL, "krkr2-diag",
+				"escaped eTJS message: %s", e.GetMessage().AsStdString().c_str());
+		}
+		catch(const std::exception &e)
+		{
+			__android_log_print(ANDROID_LOG_FATAL, "krkr2-diag",
+				"escaped std::exception: %s", e.what());
+		}
+		catch(...)
+		{
+			__android_log_print(ANDROID_LOG_FATAL, "krkr2-diag", "escaped unknown exception");
+		}
+	}
+	TJSDiagDumpLastError("terminate");
+	tDiagTrace now;
+	DiagCapture(now);
+	DiagDump("terminate-site", now);
+	abort();
+}
+
+struct tDiagInstaller
+{
+	tDiagInstaller() { std::set_terminate(DiagTerminate); }
+} g_DiagInstaller;
+} // namespace
+
+void TJSDiagOnErrorCreated(const ttstr & msg)
+{
+	std::string s = msg.AsStdString();
+	strncpy(g_DiagLastMsg, s.c_str(), sizeof(g_DiagLastMsg) - 1);
+	g_DiagLastMsg[sizeof(g_DiagLastMsg) - 1] = 0;
+	DiagCapture(g_DiagLastTrace);
+	if(g_DiagLogged < 4000)
+	{
+		g_DiagLogged++;
+		__android_log_print(ANDROID_LOG_WARN, "krkr2-diag", "eTJSError created: %s", g_DiagLastMsg);
+	}
+}
+
+void TJSDiagDumpLastError(const char *reason)
+{
+	__android_log_print(ANDROID_LOG_ERROR, "krkr2-diag",
+		"[%s] last eTJSError: %s", reason, g_DiagLastMsg);
+	DiagDump("throw-site", g_DiagLastTrace);
+}
+#else
+void TJSDiagOnErrorCreated(const ttstr &) {}
+void TJSDiagDumpLastError(const char *) {}
+#endif
 
 //---------------------------------------------------------------------------
 // TJSGetExceptionObject : retrieves TJS 'Exception' object

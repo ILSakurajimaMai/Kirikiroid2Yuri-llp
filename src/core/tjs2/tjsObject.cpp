@@ -11,6 +11,7 @@
 #include "tjsCommHead.h"
 
 #include "tjsObject.h"
+#include "tjsError.h" // llp7 diag
 #include "tjsUtils.h"
 #include "tjsNative.h"
 #include "tjsHashSearch.h"
@@ -444,7 +445,14 @@ void tTJSCustomObject::_Finalize(void)
 	catch(...)
 	{
 		IsInvalidating = false;
-		throw;
+		if(!BeforeDestructionCalled) throw;
+		// llp7: reached from Release()/~tTJSDispatch (often inside an
+		// implicitly-noexcept C++11 destructor such as ~tTJSVariant).
+		// Propagating here calls std::terminate, so log and continue
+		// destroying the object instead.
+		IsInvalidated = true;
+		TJSDiagDumpLastError("finalize-during-destruction (suppressed)");
+		return;
 	}
 	IsInvalidating = false;
 }

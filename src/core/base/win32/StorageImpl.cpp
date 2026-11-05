@@ -800,13 +800,12 @@ tTVPLocalFileStream::~tTVPLocalFileStream()
 {
     if(MemBuffer) {
 		if (!TVPWriteDataToFile(FileName, MemBuffer->GetInternalBuffer(), MemBuffer->GetSize())) {
-			delete MemBuffer;
-			ttstr filename(FileName);
-			FileName.~tTJSString();
-			free(this);
-			TVPThrowExceptionMessage(TJS_W("File Writing Error: %1"), filename);
+			// llp7: destructors are noexcept in C++11; throwing here (the old
+			// free(this)+throw hack) terminates the process. Log instead.
+			TVPAddLog(ttstr(TJS_W("[WARN] File Writing Error: ")) + FileName);
 		}
 		delete MemBuffer;
+		MemBuffer = nullptr;
     }
     if (Handle >= 0) {
 		close(Handle);
