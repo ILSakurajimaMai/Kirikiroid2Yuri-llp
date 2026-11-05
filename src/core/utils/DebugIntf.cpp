@@ -429,6 +429,10 @@ void TVPAddLog(const ttstr &line, bool appendtoimportant)
 #endif	// ENABLE_DEBUGGER
 
 	Application->PrintConsole( buf, appendtoimportant );
+#ifdef __ANDROID__
+	void TVPPrintLog(const char *str);
+	TVPPrintLog(buf.AsStdString().c_str());
+#endif
 
 	if(TVPLoggingToFile) TVPLogStreamHolder.Log(buf);
 }

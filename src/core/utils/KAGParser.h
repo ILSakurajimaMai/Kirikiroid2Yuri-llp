@@ -6,15 +6,13 @@
 	See details of license at "license.txt"
 */
 //---------------------------------------------------------------------------
-// KAG Parser Utility Class
+// KAG Parser Utility Class (with KAGParserEx extensions)
 //---------------------------------------------------------------------------
 
 #ifndef KAGParserH
 #define KAGParserH
 //---------------------------------------------------------------------------
 
-//#include <windows.h>
-//#include "tp_stub.h"
 #include "tjs.h"
 #include "tjsNative.h"
 #include "ScriptMgnIntf.h"
@@ -29,6 +27,7 @@
 #include "TransIntf.h"
 #include "tjsHashSearch.h"
 #include <vector>
+#include <cstring>
 using namespace TJS;
 /*[*/
 //---------------------------------------------------------------------------
@@ -177,16 +176,55 @@ public:
 			iTJSDispatch2 *tjs_obj);
 	void TJS_INTF_METHOD Invalidate();
 
+	static void initMethod();
+	static void doneMethod();
+
 private:
 	iTJSDispatch2 * Owner; // owner object
 
-	iTJSDispatch2 * DicClear; // Dictionary.Clear method pointer
-	iTJSDispatch2 * DicAssign; // Dictionary
-	iTJSDispatch2 * DicObj; // DictionaryObject
+	static iTJSDispatch2 * DicClear; // Dictionary.Clear method pointer
+	static iTJSDispatch2 * DicAssign; // Dictionary.Assign method pointer
+	static iTJSDispatch2 * ArrayClear; // Array.Clear method pointer
+	static iTJSDispatch2 * ArrayAssign; // Array.Assign method pointer
+	static iTJSDispatch2 * ArrayPush; // Array.Push method pointer
 
+	struct ArgValue {
+		iTJSDispatch2 *dic;
+		iTJSDispatch2 *array;
+		ArgValue();
+		ArgValue(const ArgValue &orig);
+		ArgValue(tTJSVariant &arrayVar);
+		~ArgValue();
+		ArgValue& operator=(const ArgValue& right);
+
+		void clear();
+		void add(ttstr &name, tTJSVariant &value);
+		void add(tTJSVariant &name, tTJSVariant &value);
+		tjs_error getProp(ttstr &name, tTJSVariant &value) const;
+		iTJSDispatch2 *getReturn();
+
+		template <class Iterator>
+		void extract(Iterator &store) const {
+			int count = TJSGetArrayElementCount(array);
+			for (int i=0;i<count;i++) {
+				tTJSVariant name;
+				tTJSVariant value;
+				if (TJS_SUCCEEDED(array->PropGetByNum(0, i, &name, array))) {
+					ttstr strName = name;
+					if (TJS_SUCCEEDED(dic->PropGet(0, strName.c_str(), strName.GetHint(), &value, dic))) {
+						store(name, value);
+					}
+				}
+			}
+		}
+		tTJSVariant getArray();
+	};
+
+	ArgValue args; // current args
 	iTJSDispatch2 * Macros; // Macro Dictionary Object
+	iTJSDispatch2 * ParamMacros; // Param Macro Dictionary Object
 
-	std::vector<iTJSDispatch2 *> MacroArgs; // Macro arguments
+	std::vector<ArgValue> MacroArgs; // Macro arguments
 	tjs_uint MacroArgStackDepth;
 	tjs_uint MacroArgStackBase;
 
@@ -254,6 +292,9 @@ private:
 
 	bool Interrupted;
 
+	// KAGParserEx extends
+	bool MultiLineTagEnabled;
+
 public:
 	void operator = (const tTJSNI_KAGParser & ref);
 	iTJSDispatch2 *Store();
@@ -272,12 +313,13 @@ public:
 	void LoadScenario(const ttstr & name);
 	const ttstr & GetStorageName() const { return StorageName; }
 	void GoToLabel(const ttstr &name); // search label and set current position
+	bool HasLabel(const ttstr &name);  // check label existence only (no move, no throw)
 	void GoToStorageAndLabel(const ttstr &storage, const ttstr &label);
 	void CallLabel(const ttstr &name);
 private:
 	bool SkipCommentOrLabel(); // skip comment or label and go to next line
 
-	void PushMacroArgs(iTJSDispatch2 *args);
+	void PushMacroArgs(ArgValue &value);
 public:
 	void PopMacroArgs();
 private:
@@ -300,7 +342,8 @@ public:
 	void ResetInterrupt() { Interrupted = false; };
 
 private:
-	iTJSDispatch2 * _GetNextTag();
+	void operator()(tTJSVariant &name, tTJSVariant &value);
+	bool EntryParam(bool &condition, tTJSVariant &ValueVariant, const ttstr &attribname, const ttstr &value, bool entity, bool macroarg);
 
 public:
 	iTJSDispatch2 * GetNextTag();
@@ -320,6 +363,7 @@ public:
 	tTVPKAGDebugLevel GetDebugLevel(void) const { return DebugLevel; }
 
 	iTJSDispatch2 *GetMacrosNoAddRef() const { return Macros; }
+	iTJSDispatch2 *GetParamMacrosNoAddRef() const { return ParamMacros; }
 
 	iTJSDispatch2 *GetMacroTopNoAddRef() const;
 		// get current macro argument (parameters)
@@ -328,25 +372,12 @@ public:
 
 	void Assign(const tTJSNI_KAGParser &ref) { operator =(ref); }
 
+	// KAGParserEx extends
+	void SetMultiLineTagEnabled(bool b) { MultiLineTagEnabled = b; }
+	bool GetMultiLineTagEnabled() const { return MultiLineTagEnabled; }
+
 };
 
 extern iTJSDispatch2 * TVPCreateNativeClass_KAGParser();
-
-#if 0
-//---------------------------------------------------------------------------
-// tTJSNC_KAGParser
-//---------------------------------------------------------------------------
-class tTJSNC_KAGParser : public tTJSNativeClass
-{
-public:
-	tTJSNC_KAGParser();
-
-	static tjs_uint32 ClassID;
-
-private:
-	iTJSNativeInstance *CreateNativeInstance();
-};
-//---------------------------------------------------------------------------
-#endif
 
 #endif
